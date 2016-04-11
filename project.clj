@@ -3,8 +3,8 @@
   :url "http://clojureriak.info"
   :license {:name "Eclipse Public License"}
   :min-lein-version "2.5.1"
-  :dependencies [[org.clojure/clojure        "1.6.0"]
-                 [com.basho.riak/riak-client "1.4.4" :exclusions [org.apache.httpcomponents/httpclient]]
+  :dependencies [[org.clojure/clojure        "1.8.0"]
+                 [com.basho.riak/riak-client "2.0.4"]
                  [cheshire                   "5.3.1"]
                  [clojurewerkz/support       "1.1.0"]
                  ;; for the Riak Search Solr API support. When Riak Client supports

@@ -1,134 +1,36 @@
-;; Copyright (c) 2012-2014 Michael S. Klishin
-;;
-;; The use and distribution terms for this software are covered by the
-;; Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
-;; which can be found in the file epl-v10.html at the root of this distribution.
-;; By using this software in any fashion, you are agreeing to be bound by
-;; the terms of this license.
-;; You must not remove this notice, or any other, from this software.
-
 (ns clojurewerkz.welle.core
-  (:import com.basho.riak.client.raw.RawClient
-           [com.basho.riak.client.raw.http HTTPClientConfig HTTPClientConfig$Builder
-            HTTPClusterClient HTTPClusterConfig]
-           [com.basho.riak.client.raw.pbc PBClientAdapter PBClusterClient
-            PBClusterConfig PBClientConfig$Builder]
-           com.basho.riak.client.raw.config.ClusterConfig
-           clojurewerkz.welle.HTTPClient))
+  (:import [com.basho.riak.client.api RiakClient RiakCommand]
+           [com.basho.riak.client.core RiakCluster$Builder RiakNode$Builder RiakFuture]))
 
 
-
-;;
-;; API
-;;
-
-(def ^{:private true :const true} default-host "127.0.0.1")
-(def ^{:private true :const true} default-http-port 8098)
-(def ^{:private true :const true} default-pb-port 8087)
-
-(def ^{:private true :const true} default-url "http://127.0.0.1:8098/riak")
-
-(def ^{:const true} default-cluster-connection-limit 32)
-
-
-(defn ^HTTPClient
-  connect
-  "Creates an HTTP client for a given URL, optionally with a custom client ID.
-  With no arguments, connects to localhost on the default Riak port."
+(defn new-client
+  "creates a new client connection
+Accepts an array of addresses that may contain ports
+(new-client [\"127.0.0.1\" \"127.0.0.1:8087\"]) "
   ([]
-     (connect default-url))
-  ([^String url]
-     (doto (HTTPClient. (com.basho.riak.client.http.RiakClient. ^String url))
-       (.generateAndSetClientId)))
-  ([^String url ^bytes client-id]
-     (let [^HTTPClient c (connect url)]
-       (.setClientId c client-id)
-       c)))
+   (new-client ["127.0.0.1"] {}))
+  ([addresses]
+   (new-client addresses {}))
+  ([^java.util.List addresses {:keys [min-connections max-connections username password keystore]
+                               :or {min-connections 10 max-connections 50}}]
+   (let [builder (doto (new RiakNode$Builder)
+                   ;; todo add auth here (.withAuth username password keystore)
+                   (.withMinConnections min-connections)
+                   (.withMaxConnections max-connections)
+                   )
+         nodes (RiakNode$Builder/buildNodes builder addresses)
+         cluster (.build (new RiakCluster$Builder nodes))]
+     (.start cluster)
+     (new RiakClient cluster))))
 
-(defn ^PBClientAdapter connect-via-pb
-  "Creates a Protocol Buffers client for the given host and port, or, by
-  default, to localhost on the default Riak PB port."
-  ([]
-     (connect-via-pb default-host default-pb-port))
-  ([^String host ^long port]
-     (doto (PBClientAdapter. (com.basho.riak.pbc.RiakClient. host port))
-       (.generateAndSetClientId))))
+(defn execute [^RiakClient client ^RiakCommand command]
+  (.execute client command))
 
-(defprotocol HTTPClusterConfigurator
-  (http-cluster-config-from [self]))
+(defn ^RiakFuture execute-async [^RiakClient client ^RiakCommand command]
+  (.executeAsync client command))
 
-(extend-type HTTPClusterConfig
-  HTTPClusterConfigurator
-  (http-cluster-config-from [self] self))
+(defn get-cluster [^RiakClient client]
+  (.getRiakCluster client))
 
-(extend-type java.util.Collection
-  HTTPClusterConfigurator
-  (http-cluster-config-from [endpoints]
-    (let [res (HTTPClusterConfig. default-cluster-connection-limit)]
-      (doseq [^String endpoint endpoints]
-        (.addClient res (-> (HTTPClientConfig$Builder.)
-                            (.withUrl endpoint)
-                            (.build))))
-      res)))
-
-(defn ^RawClient
-  connect-to-cluster
-  "Creates an HTTP cluster client."
-  [endpoints]
-  (let [^ClusterConfig cc (http-cluster-config-from endpoints)]
-    (HTTPClusterClient. cc)))
-
-(defprotocol PBClusterConfigurator
-  (pbc-cluster-config-from [self]))
-
-(extend-type PBClusterConfig
-  PBClusterConfigurator
-  (pbc-cluster-config-from [self] self))
-
-(extend-type java.util.Collection
-  PBClusterConfigurator
-  (pbc-cluster-config-from [endpoints]
-    (let [res (PBClusterConfig. default-cluster-connection-limit)]
-      (doseq [^String endpoint endpoints]
-        (let [[host port-str] (seq (.split endpoint ":" 2))
-              port (when port-str (Integer/parseInt port-str))]
-          (.addClient res (-> (PBClientConfig$Builder.)
-                              (.withHost host)
-                              (.withPort (or port
-                                             default-pb-port))
-                              (.build)))))
-      res)))
-
-(defn ^PBClusterClient
-  connect-to-cluster-via-pb
-  "Creates a Protocol Buffers cluster client given a sequence of string
-  endpoints."
-  [endpoints]
-  (let [^ClusterConfig cc (pbc-cluster-config-from endpoints)]
-    (PBClusterClient. cc)))
-
-(defn ping
-  "Pings a client."
-  [^RawClient client]
-  (.ping client))
-
-(defn shutdown
-  "Shuts down a client."
-  [^RawClient client]
+(defn shutdown [^RiakClient client]
   (.shutdown client))
-
-
-(defn get-client-id
-  "The client ID used by a given client."
-  [^RawClient client]
-  (.getClientId client))
-
-(defn stats
-  "Returns statistics for a client."
-  [^RawClient client]
-  (.stats client))
-
-(defn get-base-url
-  "Returns base HTTP transport URL (e.g. http://127.0.0.1:8098)"
-  [^HTTPClient client]
-  (.getBaseUrl client))
